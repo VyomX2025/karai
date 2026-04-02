@@ -1,102 +1,76 @@
-import { NextResponse } from "next/server";
+export const runtime = "nodejs";
 
-const GEMINI_ENDPOINT =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent";
+export async function POST(req) {
+  try {
+    const { message } = await req.json();
 
-const SYSTEM_PROMPT = `You are Kar AI, an expert Indian tax assistant.
+    if (!process.env.GEMINI_API_KEY) {
+      throw new Error("Missing GEMINI_API_KEY");
+    }
 
-You:
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${process.env.GEMINI_API_KEY}`;
 
-* Estimate tax
-* Suggest deductions (80C, 80D, HRA)
-* Ask missing info
-* Give actionable steps
+    const geminiRes = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              {
+                text: `
+You are TAXsathi, an Indian tax assistant.
 
-Respond in format:
+User input:
+${message}
+
+Respond:
 
 Summary:
 Estimated Tax:
 Tax Saving Opportunities:
 Missing Information:
-Action Steps:`;
-
-export async function POST(req) {
-  try {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: "Server misconfigured: missing GEMINI_API_KEY." },
-        { status: 500 }
-      );
-    }
-
-    let payload;
-    try {
-      payload = await req.json();
-    } catch (e) {
-      console.error("Invalid JSON body:", e);
-      return NextResponse.json(
-        { error: "Invalid JSON body." },
-        { status: 400 }
-      );
-    }
-
-    const message = typeof payload?.message === "string" ? payload.message : "";
-    if (!message.trim()) {
-      return NextResponse.json(
-        { error: "Missing required field: message." },
-        { status: 400 }
-      );
-    }
-
-    const body = {
-      contents: [
-        {
-          parts: [
-            {
-              text: `${SYSTEM_PROMPT}\n\nUSER:\n${message.trim()}`,
-            },
-          ],
-        },
-      ],
-    };
-
-    const res = await fetch(`${GEMINI_ENDPOINT}?key=${encodeURIComponent(apiKey)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+Action Steps:
+`,
+              },
+            ],
+          },
+        ],
+      }),
     });
 
-    if (!res.ok) {
-      const errorText = await res.text().catch(() => "");
-      console.error("Gemini API error:", {
-        status: res.status,
-        statusText: res.statusText,
-        body: errorText,
-      });
-      return NextResponse.json(
-        { error: "Upstream AI service error. Please try again." },
-        { status: 502 }
-      );
+    const data = await geminiRes.json();
+
+    // 🔥 LOG EVERYTHING (IMPORTANT)
+    console.log("STATUS:", geminiRes.status);
+    console.log("FULL RESPONSE:", JSON.stringify(data));
+
+    if (!geminiRes.ok) {
+      throw new Error(`Gemini Error: ${JSON.stringify(data)}`);
     }
 
-    const data = await res.json().catch(() => null);
     const text =
-      data?.candidates?.[0]?.content?.parts?.find((p) => typeof p?.text === "string")
-        ?.text ?? "";
+      data?.candidates?.[0]?.content?.parts?.[0]?.text ||
+      "No valid response";
 
-    if (!text.trim()) {
-      return NextResponse.json({
-        text: "Summary:\nI couldn't generate a response just now.\nEstimated Tax:\n—\nTax Saving Opportunities:\n—\nMissing Information:\n—\nAction Steps:\nPlease try again in a moment.",
-      });
-    }
+    return new Response(JSON.stringify({ text }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    console.error("FINAL ERROR:", error);
 
-    return NextResponse.json({ text });
-  } catch (e) {
-    console.error("tax-agent route crash prevented:", e);
-    return NextResponse.json(
-      { error: "Unexpected server error. Please try again." },
-      { status: 500 }
+    return new Response(
+      JSON.stringify({
+        text: `Summary: AI service error
+Estimated Tax: —
+Tax Saving Opportunities: —
+Missing Information: —
+Action Steps: Try again`,
+      }),
+      { status: 200 }
     );
   }
 }
