@@ -4,56 +4,55 @@ export async function POST(req) {
   try {
     const { message } = await req.json();
 
-    if (!process.env.GEMINI_API_KEY) {
-      throw new Error("Missing GEMINI_API_KEY");
+    if (!process.env.GROQ_API_KEY) {
+      throw new Error("Missing GROQ_API_KEY");
     }
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${process.env.GEMINI_API_KEY}`;
-
-    const geminiRes = await fetch(url, {
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
       },
       body: JSON.stringify({
-        contents: [
+        model: "llama3-70b-8192", // stable + powerful
+        messages: [
           {
-            parts: [
-              {
-                text: `
-You are TAXsathi, an Indian tax assistant.
+            role: "system",
+            content: `You are TAXsathi, an expert Indian tax assistant.
 
-User input:
-${message}
+You:
+- Estimate tax
+- Suggest deductions (80C, 80D, HRA)
+- Ask missing info
+- Give actionable steps
 
-Respond:
+Respond in format:
 
 Summary:
 Estimated Tax:
 Tax Saving Opportunities:
 Missing Information:
-Action Steps:
-`,
-              },
-            ],
+Action Steps:`,
+          },
+          {
+            role: "user",
+            content: message,
           },
         ],
+        temperature: 0.7,
       }),
     });
 
-    const data = await geminiRes.json();
+    const data = await response.json();
 
-    // 🔥 LOG EVERYTHING (IMPORTANT)
-    console.log("STATUS:", geminiRes.status);
-    console.log("FULL RESPONSE:", JSON.stringify(data));
+    console.log("GROQ RESPONSE:", data);
 
-    if (!geminiRes.ok) {
-      throw new Error(`Gemini Error: ${JSON.stringify(data)}`);
+    if (!response.ok) {
+      throw new Error(JSON.stringify(data));
     }
 
-    const text =
-      data?.candidates?.[0]?.content?.parts?.[0]?.text ||
-      "No valid response";
+    const text = data?.choices?.[0]?.message?.content || "No response";
 
     return new Response(JSON.stringify({ text }), {
       status: 200,
